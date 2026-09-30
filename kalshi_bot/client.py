@@ -60,8 +60,14 @@ class KalshiClient:
         pem = os.environ.get("KALSHI_PRIVATE_KEY")
         key_path = os.environ.get("KALSHI_PRIVATE_KEY_PATH")
         if not pem and key_path:
-            with open(key_path) as f:
-                pem = f.read()
+            try:
+                with open(os.path.expanduser(key_path)) as f:
+                    pem = f.read()
+            except FileNotFoundError:
+                raise KalshiError(
+                    f"Can't find your private key file at {key_path}. Move the key file "
+                    "you downloaded from Kalshi there, or point KALSHI_PRIVATE_KEY_PATH at it."
+                )
         if not key_id or not pem:
             raise KalshiError(
                 "Set KALSHI_API_KEY_ID and either KALSHI_PRIVATE_KEY (PEM contents) "
