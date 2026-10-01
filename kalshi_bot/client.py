@@ -114,15 +114,24 @@ class KalshiClient:
         return markets
 
     def place_limit_order(self, ticker: str, side: str, count: int, price_cents: int) -> dict:
-        if side not in ("yes", "no"):
-            raise ValueError(f"side must be 'yes' or 'no', got {side!r}")
-        body = {
-            "ticker": ticker,
-            "action": "buy",
-            "side": side,
-            "count": count,
-            "type": "limit",
-            f"{side}_price": price_cents,
-            "client_order_id": str(uuid.uuid4()),
-        }
-        return self._request("POST", "/portfolio/orders", json=body).get("order", {})
+        """Buy `count` YES or NO contracts at `price_cents` or better."""
+        data = self._request("POST", "/portfolio/events/orders", json=order_body_v2(
+            ticker, side, count, price_cents, str(uuid.uuid4())))
+        return data.get("order", data)
+
+
+def order_body_v2(ticker: str, side: str, count: int, price_cents: int, client_order_id: str) -> dict:
+    """Build a V2 order. V2 has a single YES book: buying YES at p is a bid at p,
+    and buying NO at p is an ask (sell YES) at 100 - p. Prices are dollar strings
+    and counts are fixed-point strings."""
+    if side not in ("yes", "no"):
+        raise ValueError(f"side must be 'yes' or 'no', got {side!r}")
+    yes_price = price_cents if side == "yes" else 100 - price_cents
+    return {
+        "ticker": ticker,
+        "client_order_id": client_order_id,
+        "side": "bid" if side == "yes" else "ask",
+        "count": f"{count}.00",
+        "price": f"{yes_price / 100:.4f}",
+        "time_in_force": "good_till_canceled",
+    }

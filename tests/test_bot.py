@@ -104,3 +104,11 @@ def test_skip_reasons_and_fixed_point_volume():
                {"ticker": "FP", "yes_bid": 86, "yes_ask": 88, "volume_24h_fp": "750.00"}]
     assert skip_reasons(markets, StrategyConfig()) == {
         "low volume": 1, "spread too wide": 1, "no side in price range": 1}
+
+
+def test_order_body_v2_maps_yes_no_onto_single_book():
+    from kalshi_bot.client import order_body_v2
+    yes = order_body_v2("T", "yes", 5, 88, "id")
+    assert (yes["side"], yes["price"], yes["count"]) == ("bid", "0.8800", "5.00")
+    no = order_body_v2("T", "no", 5, 91, "id")
+    assert (no["side"], no["price"]) == ("ask", "0.0900")
