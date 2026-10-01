@@ -25,6 +25,7 @@ python -m kalshi_bot scan              # markets the strategy likes (closing wit
 python -m kalshi_bot run               # dry run: shows the orders it would place
 python -m kalshi_bot run --place       # sends those orders to the demo exchange
 python -m kalshi_bot scan --hours 12   # narrow the window
+python -m kalshi_bot scan --min-volume 10 --max-spread 10   # loosen filters (demo has little trading)
 ```
 
 Placed orders are logged to `trades.jsonl`.

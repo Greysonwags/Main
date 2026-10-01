@@ -95,3 +95,12 @@ def test_risk_limits():
 
 def test_risk_keeps_minimum_balance():
     assert size_orders([idea("A")], 1200, set(), RiskConfig()) == []
+
+
+def test_skip_reasons_and_fixed_point_volume():
+    from kalshi_bot.strategy import skip_reasons
+    markets = [market("LOW", volume_24h=1), market("WIDE", yes_bid=70, yes_ask=90),
+               market("FLIP", yes_bid=49, yes_ask=51),
+               {"ticker": "FP", "yes_bid": 86, "yes_ask": 88, "volume_24h_fp": "750.00"}]
+    assert skip_reasons(markets, StrategyConfig()) == {
+        "low volume": 1, "spread too wide": 1, "no side in price range": 1}

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from .client import KalshiClient, KalshiError
 from .risk import RiskConfig, size_orders
-from .strategy import StrategyConfig, find_trades
+from .strategy import StrategyConfig, find_trades, skip_reasons
 
 JOURNAL = "trades.jsonl"
 
@@ -34,8 +34,13 @@ def cmd_status(client, args):
 def scan(client, args):
     max_close_ts = time.time() + args.hours * 3600
     markets = client.get_open_markets(max_close_ts=max_close_ts)
-    ideas = find_trades(markets, StrategyConfig())
+    cfg = StrategyConfig(min_price=args.min_price, max_price=args.max_price,
+                         max_spread=args.max_spread, min_volume_24h=args.min_volume)
+    ideas = find_trades(markets, cfg)
     print(f"Scanned {len(markets)} open markets closing within {args.hours}h; {len(ideas)} match.")
+    reasons = skip_reasons(markets, cfg)
+    if reasons:
+        print("Skipped: " + ", ".join(f"{n} {r}" for r, n in sorted(reasons.items(), key=lambda x: -x[1])))
     return ideas
 
 
@@ -78,10 +83,15 @@ def main():
     parser = argparse.ArgumentParser(prog="kalshi_bot", description="Kalshi demo trading bot")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="show demo balance and positions")
+    d = StrategyConfig()
     for name, help_text in (("scan", "list markets the strategy likes"),
                             ("run", "size orders and (with --place) submit them")):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--hours", type=float, default=48, help="only markets closing within N hours")
+        p.add_argument("--min-volume", type=int, default=d.min_volume_24h, help="min contracts traded in 24h")
+        p.add_argument("--max-spread", type=int, default=d.max_spread, help="max bid/ask gap in cents")
+        p.add_argument("--min-price", type=int, default=d.min_price, help="lowest price to buy, in cents")
+        p.add_argument("--max-price", type=int, default=d.max_price, help="highest price to buy, in cents")
         if name == "run":
             p.add_argument("--place", action="store_true", help="actually submit orders to demo")
     args = parser.parse_args()

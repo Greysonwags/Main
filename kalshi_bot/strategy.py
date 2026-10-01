@@ -35,15 +35,25 @@ def ask_for_side(market: dict, side: str):
     return ask
 
 
-def evaluate(market: dict, cfg: StrategyConfig):
-    """Return a TradeIdea for the market, or None if it doesn't qualify."""
-    volume = int(market.get("volume_24h") or 0)
+def volume_24h(market: dict) -> int:
+    """24h volume, accepting the newer fixed-point string field if present."""
+    fp = market.get("volume_24h_fp")
+    if fp not in (None, ""):
+        return int(float(fp))
+    return int(market.get("volume_24h") or 0)
+
+
+def check(market: dict, cfg: StrategyConfig):
+    """Return (TradeIdea, None) if the market qualifies, else (None, reason)."""
+    volume = volume_24h(market)
     if volume < cfg.min_volume_24h:
-        return None
+        return None, "low volume"
 
     yes_bid, yes_ask = price_cents(market, "yes_bid"), price_cents(market, "yes_ask")
-    if not yes_bid or not yes_ask or yes_ask - yes_bid > cfg.max_spread:
-        return None
+    if not yes_bid or not yes_ask:
+        return None, "no bids/asks"
+    if yes_ask - yes_bid > cfg.max_spread:
+        return None, "spread too wide"
 
     for side in ("yes", "no"):
         ask = ask_for_side(market, side)
@@ -54,12 +64,27 @@ def evaluate(market: dict, cfg: StrategyConfig):
                 side=side,
                 price=ask,
                 reason=f"{side.upper()} favorite at {ask}c, spread {yes_ask - yes_bid}c, 24h vol {volume}",
-            )
-    return None
+            ), None
+    return None, "no side in price range"
+
+
+def evaluate(market: dict, cfg: StrategyConfig):
+    """Return a TradeIdea for the market, or None if it doesn't qualify."""
+    return check(market, cfg)[0]
+
+
+def skip_reasons(markets: list, cfg: StrategyConfig) -> dict:
+    """Count why markets were rejected, e.g. {"low volume": 120}."""
+    counts = {}
+    for m in markets:
+        reason = check(m, cfg)[1]
+        if reason:
+            counts[reason] = counts.get(reason, 0) + 1
+    return counts
 
 
 def find_trades(markets: list, cfg: StrategyConfig) -> list:
     ideas = [idea for m in markets if (idea := evaluate(m, cfg))]
     # Prefer the most liquid markets first.
-    volume = {m["ticker"]: int(m.get("volume_24h") or 0) for m in markets}
+    volume = {m["ticker"]: volume_24h(m) for m in markets}
     return sorted(ideas, key=lambda i: volume[i.ticker], reverse=True)
