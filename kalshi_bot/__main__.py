@@ -1,7 +1,9 @@
-"""Command line: python -m kalshi_bot {status,scan,run,auto} [--place]
+"""Command line: python -m kalshi_bot {status,scan,run,auto,arb} [--place]
 
 `run` is a dry run unless --place is given; `auto` repeats `run --place` on a
 timer. Orders only ever go to the demo environment, which uses fake money.
+`arb` reads real Kalshi prices read-only (no key, no orders) to look for
+locked-in-profit opportunities.
 """
 
 import argparse
@@ -12,7 +14,7 @@ from datetime import datetime, timezone
 
 import requests
 
-from . import report
+from . import arb, report
 from .client import KalshiClient, KalshiError
 from .risk import RiskConfig, size_orders
 from .strategy import StrategyConfig, find_trades, skip_reasons
@@ -135,6 +137,47 @@ def cmd_auto(client, args, sleep=time.sleep):
         print("\nStopped.")
 
 
+ARB_LOG = "arbs.jsonl"
+
+
+def scan_arbs(client) -> list:
+    events = client.get_events_with_markets()
+    exclusive = sum(1 for e in events if e.get("mutually_exclusive"))
+    found = arb.find_arbs(events)
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"[{stamp}] Checked {len(events)} open events ({exclusive} with one-winner outcomes); "
+          f"{len(found)} locked-in profit opportunit{'y' if len(found) == 1 else 'ies'}.")
+    for a in found:
+        print(f"  {a.event_ticker}  {a.title}")
+        print(f"    Buy 1 NO on each of {len(a.legs)} outcomes: cost {dollars(a.cost)} + fees "
+              f"{dollars(a.fees)}, guaranteed back at least {dollars(a.payout)} "
+              f"-> profit {dollars(a.profit)} per set")
+        for ticker, ask in a.legs:
+            print(f"      NO {ticker} @ {ask}c")
+        with open(ARB_LOG, "a") as f:
+            f.write(json.dumps({"time": stamp, "event": a.event_ticker, "profit": a.profit,
+                                "legs": a.legs}) + "\n")
+    if not found:
+        close = arb.near_misses(events)
+        if close:
+            print("  Closest ones (negative = would lose money):")
+            for profit, ticker, title, n in close:
+                print(f"    {dollars(profit):>8} per set  {ticker} ({n} outcomes) {title}")
+    return found
+
+
+def cmd_arb(client, args, sleep=time.sleep):
+    """Look for arbitrage once, or every args.every minutes until Ctrl+C."""
+    try:
+        while True:
+            scan_arbs(client)
+            if not args.every:
+                break
+            sleep(args.every * 60)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="kalshi_bot", description="Kalshi demo trading bot")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -155,9 +198,17 @@ def main():
         if name == "auto":
             p.add_argument("--every", type=float, default=60, help="minutes between rounds")
             p.add_argument("--rounds", type=int, default=0, help="stop after N rounds (0 = forever)")
+    a = sub.add_parser("arb", help="look for locked-in profit on real prices (read-only)")
+    a.add_argument("--demo", action="store_true", help="check demo prices instead of real ones")
+    a.add_argument("--every", type=float, default=0, help="re-check every N minutes until Ctrl+C")
     args = parser.parse_args()
 
     try:
+        if args.command == "arb":
+            if args.demo:
+                return cmd_arb(KalshiClient.from_env(), args)
+            print("Reading real Kalshi prices (read-only: no login, no orders).")
+            return cmd_arb(KalshiClient.public(), args)
         client = KalshiClient.from_env()
         {"status": cmd_status, "scan": cmd_scan, "run": cmd_run, "auto": cmd_auto}[args.command](client, args)
     except KalshiError as e:

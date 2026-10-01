@@ -4,3 +4,4 @@ __pycache__/
 *.key
 .env
 trades.jsonl
+arbs.jsonl

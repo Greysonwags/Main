@@ -43,6 +43,19 @@ Each round is a `run --place`. A failed round is reported and retried next
 round. It only runs while the Terminal window stays open and the computer is
 awake.
 
+## Arbitrage scanner (`kalshi_bot/arb.py`)
+
+```sh
+python -m kalshi_bot arb              # check real Kalshi prices once (no key needed)
+python -m kalshi_bot arb --every 5    # re-check every 5 minutes, log finds to arbs.jsonl
+python -m kalshi_bot arb --demo       # check demo prices instead
+```
+
+Looks for events where only one outcome can win and buying NO on every
+outcome costs less, after fees, than the minimum it must pay back. Real prices
+are read through a read-only connection that sends no key and refuses orders.
+It only reports; it never trades.
+
 ## Strategy (`kalshi_bot/strategy.py`)
 
 Buys the heavy favorite (YES or NO priced 80–94¢) in markets with at least

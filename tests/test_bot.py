@@ -229,3 +229,65 @@ def test_snapshot_for_dashboard():
     assert snap["waiting"] == ["W: buy YES @ 88c"]
     assert (snap["open_pnl"], snap["total_pnl"]) == (35, -325)
     json.dumps(snap)
+
+
+def test_taker_fee():
+    from kalshi_bot.arb import taker_fee_cents
+    assert taker_fee_cents(50) == 2      # 0.07 x .5 x .5 = 1.75c -> 2c
+    assert taker_fee_cents(90) == 1      # 0.63c -> 1c
+    assert taker_fee_cents(90, 10) == 7  # 6.3c -> 7c
+
+
+def test_finds_no_side_arbitrage():
+    from kalshi_bot.arb import find_arbs, near_misses
+    def mk(t, yes_bid):
+        return {"ticker": t, "status": "active", "yes_bid": yes_bid, "yes_ask": yes_bid + 1}
+    # NO asks = 100 - yes_bid: 70 + 70 + 70 = 210 for a guaranteed 200 -> loses
+    fair = {"event_ticker": "FAIR", "mutually_exclusive": True,
+            "markets": [mk("A", 30), mk("B", 30), mk("C", 30)]}
+    # NO asks 60 + 60 + 60 = 180 + 3 x 2c fees = 186 for a guaranteed 200 -> +14c
+    cheap = {"event_ticker": "CHEAP", "mutually_exclusive": True,
+             "markets": [mk("A", 40), mk("B", 40), mk("C", 40)]}
+    not_exclusive = dict(cheap, event_ticker="NX", mutually_exclusive=False)
+    missing_leg = {"event_ticker": "GAP", "mutually_exclusive": True,
+                   "markets": [mk("A", 40), {"ticker": "B", "status": "active"}]}
+    arbs = find_arbs([fair, cheap, not_exclusive, missing_leg])
+    assert [a.event_ticker for a in arbs] == ["CHEAP"]
+    assert (arbs[0].cost, arbs[0].fees, arbs[0].payout, arbs[0].profit) == (180, 6, 200, 14)
+    assert [r[1] for r in near_misses([fair, cheap])] == ["CHEAP", "FAIR"]
+
+
+def test_public_client_is_read_only():
+    import pytest
+    from kalshi_bot.client import KalshiClient, KalshiError, REAL_BASE_URL
+
+    class NoNetwork:
+        def request(self, *a, **k):
+            raise AssertionError("should not reach the network")
+
+    real = KalshiClient.public(session=NoNetwork())
+    assert real.base_url == REAL_BASE_URL
+    with pytest.raises(KalshiError):
+        real.place_limit_order("T", "yes", 1, 50)
+    with pytest.raises(KalshiError):
+        real._request("POST", "/portfolio/events/orders", json={})
+
+
+def test_public_get_sends_no_auth_headers():
+    from kalshi_bot.client import KalshiClient
+    seen = {}
+
+    class Resp:
+        status_code, content = 200, b"{}"
+        def json(self):
+            return {"events": [], "cursor": ""}
+
+    class Sess:
+        def request(self, method, url, **kw):
+            seen.update(url=url, headers=kw["headers"], params=kw["params"])
+            return Resp()
+
+    KalshiClient.public(session=Sess()).get_events_with_markets()
+    assert seen["url"] == "https://external-api.kalshi.com/trade-api/v2/events"
+    assert not any(h.startswith("KALSHI-") for h in seen["headers"])
+    assert seen["params"]["with_nested_markets"] == "true"

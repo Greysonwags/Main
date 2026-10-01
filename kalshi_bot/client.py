@@ -15,6 +15,9 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
 DEMO_BASE_URL = "https://demo-api.kalshi.co/trade-api/v2"
+# Real exchange. Only used read-only, through KalshiClient.public(): no key,
+# GET requests only, and orders are refused.
+REAL_BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 
 
 class KalshiError(Exception):
@@ -56,6 +59,11 @@ class KalshiClient:
         self.session = session or requests.Session()
 
     @classmethod
+    def public(cls, base_url: str = REAL_BASE_URL, session=None):
+        """Unauthenticated, read-only client for public market data."""
+        return cls(None, None, base_url=base_url, session=session)
+
+    @classmethod
     def from_env(cls):
         key_id = os.environ.get("KALSHI_API_KEY_ID")
         pem = os.environ.get("KALSHI_PRIVATE_KEY")
@@ -77,15 +85,19 @@ class KalshiClient:
         return cls(key_id, load_private_key(pem))
 
     def _request(self, method: str, path: str, params=None, json=None):
-        timestamp = str(int(time.time() * 1000))
-        headers = {
-            "KALSHI-ACCESS-KEY": self.key_id,
-            "KALSHI-ACCESS-TIMESTAMP": timestamp,
-            "KALSHI-ACCESS-SIGNATURE": sign_request(
-                self.private_key, timestamp, method, self.base_path + path
-            ),
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if self.private_key is None:
+            if method != "GET":
+                raise KalshiError("This read-only connection can't place or change orders.")
+        else:
+            timestamp = str(int(time.time() * 1000))
+            headers.update({
+                "KALSHI-ACCESS-KEY": self.key_id,
+                "KALSHI-ACCESS-TIMESTAMP": timestamp,
+                "KALSHI-ACCESS-SIGNATURE": sign_request(
+                    self.private_key, timestamp, method, self.base_path + path
+                ),
+            })
         resp = self.session.request(
             method, self.base_url + path, params=params, json=json, headers=headers, timeout=20
         )
@@ -98,6 +110,20 @@ class KalshiClient:
 
     def get_positions(self) -> list:
         return self._request("GET", "/portfolio/positions").get("market_positions", [])
+
+    def get_events_with_markets(self, max_pages: int = 20) -> list:
+        """Open events, each with its list of markets nested under "markets"."""
+        events, cursor = [], None
+        for _ in range(max_pages):
+            params = {"status": "open", "with_nested_markets": "true", "limit": 200}
+            if cursor:
+                params["cursor"] = cursor
+            data = self._request("GET", "/events", params=params)
+            events.extend(data.get("events", []))
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        return events
 
     def get_market(self, ticker: str) -> dict:
         return self._request("GET", f"/markets/{ticker}").get("market", {})
@@ -147,6 +173,8 @@ class KalshiClient:
 
     def place_limit_order(self, ticker: str, side: str, count: int, price_cents: int) -> dict:
         """Buy `count` YES or NO contracts at `price_cents` or better."""
+        if self.base_url != DEMO_BASE_URL:
+            raise KalshiError("Orders are only allowed on the demo exchange.")
         data = self._request("POST", "/portfolio/events/orders", json=order_body_v2(
             ticker, side, count, price_cents, str(uuid.uuid4())))
         return data.get("order", data)
