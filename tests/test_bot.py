@@ -216,3 +216,16 @@ def test_status_home_screen(capsys):
     assert "Open bets:      +$0.20" in out
     assert "Total:          -$3.40" in out
     assert "couldn't be priced" in out
+
+
+def test_snapshot_for_dashboard():
+    import json
+    from kalshi_bot import report
+    trades = [{"ticker": "A", "title": "", "side": "yes", "contracts": 5, "cost": 440, "value": 475, "pnl": 35},
+              {"ticker": "B", "title": "", "side": "no", "contracts": 3, "cost": 270, "value": None, "pnl": None}]
+    snap = report.snapshot(8210, trades, [{"ticker": "W", "side": "bid", "price_dollars": "0.88"}],
+                           {"count": 2, "wins": 1, "losses": 1, "pnl": -360}, "2026-10-01T15:00:00+00:00")
+    assert snap["kind"] == "kalshi-status" and snap["balance"] == 8210
+    assert snap["waiting"] == ["W: buy YES @ 88c"]
+    assert (snap["open_pnl"], snap["total_pnl"]) == (35, -325)
+    json.dumps(snap)

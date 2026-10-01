@@ -21,6 +21,7 @@ A small bot that scans Kalshi markets and places practice orders on the
 
 ```sh
 python -m kalshi_bot status            # home screen: balance, active trades, profit/loss
+python -m kalshi_bot status --copy     # also copy a snapshot to paste into the Home Base dashboard
 python -m kalshi_bot scan              # markets the strategy likes (closing within 48h)
 python -m kalshi_bot run               # dry run: shows the orders it would place
 python -m kalshi_bot run --place       # sends those orders to the demo exchange

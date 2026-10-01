@@ -6,6 +6,7 @@ timer. Orders only ever go to the demo environment, which uses fake money.
 
 import argparse
 import json
+import subprocess
 import time
 from datetime import datetime, timezone
 
@@ -37,12 +38,25 @@ def cmd_status(client, args):
             markets[p["ticker"]] = client.get_market(p["ticker"])
         except KalshiError:
             pass  # shown as "?" rather than failing the whole screen
-    print(report.render(
+    parts = dict(
         balance=client.get_balance_cents(),
         trades=report.active_trades(positions, markets),
         resting=client.get_resting_orders(),
         settled=report.settled_results(client.get_settlements()),
-    ))
+    )
+    print(report.render(**parts))
+    if getattr(args, "copy", False):
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        copy_to_clipboard(json.dumps(report.snapshot(now=now, **parts)))
+
+
+def copy_to_clipboard(text: str):
+    try:
+        subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        print("\nCopied! Open Home Base and click 'Paste update' in the Kalshi panel.")
+    except (OSError, subprocess.CalledProcessError):
+        print("\nCouldn't reach the clipboard. Copy everything on the next line instead:")
+        print(text)
 
 
 def scan(client, args):
@@ -124,7 +138,8 @@ def cmd_auto(client, args, sleep=time.sleep):
 def main():
     parser = argparse.ArgumentParser(prog="kalshi_bot", description="Kalshi demo trading bot")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("status", help="home screen: balance, active trades, profit/loss")
+    st = sub.add_parser("status", help="home screen: balance, active trades, profit/loss")
+    st.add_argument("--copy", action="store_true", help="also copy a snapshot for the Home Base dashboard")
     d = StrategyConfig()
     for name, help_text in (("scan", "list markets the strategy likes"),
                             ("run", "size orders and (with --place) submit them"),

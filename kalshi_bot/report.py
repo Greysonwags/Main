@@ -87,6 +87,23 @@ def describe_order(o: dict) -> str:
     return f"{o.get('ticker', '?')}: buy {qty_txt}{what}{price_txt}"
 
 
+def snapshot(balance: int, trades: list, resting: list, settled: dict, now: str) -> dict:
+    """Compact, JSON-ready status for pasting into the Home Base dashboard.
+    Money is in cents."""
+    open_pnl = sum(t["pnl"] for t in trades if t["pnl"] is not None)
+    return {
+        "kind": "kalshi-status",
+        "v": 1,
+        "at": now,
+        "balance": balance,
+        "trades": trades,
+        "waiting": [describe_order(o) for o in resting],
+        "settled": settled,
+        "open_pnl": open_pnl,
+        "total_pnl": settled["pnl"] + open_pnl,
+    }
+
+
 def render(balance: int, trades: list, resting: list, settled: dict) -> str:
     lines = ["=" * 50, " KALSHI DEMO  (practice account, fake money)", "=" * 50,
              f"Cash balance:   {dollars(balance)}", ""]
