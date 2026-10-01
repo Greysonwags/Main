@@ -173,7 +173,12 @@ def cmd_arb(client, args, sleep=time.sleep):
     """Look for arbitrage once, or every args.every minutes until Ctrl+C."""
     try:
         while True:
-            scan_arbs(client)
+            try:
+                scan_arbs(client)
+            except (KalshiError, requests.RequestException) as e:
+                if not args.every:
+                    raise
+                print(f"\nThis check failed, will try again next time: {e}")
             if not args.every:
                 break
             sleep(args.every * 60)

@@ -291,3 +291,29 @@ def test_public_get_sends_no_auth_headers():
     assert seen["url"] == "https://external-api.kalshi.com/trade-api/v2/events"
     assert not any(h.startswith("KALSHI-") for h in seen["headers"])
     assert seen["params"]["with_nested_markets"] == "true"
+
+
+def test_event_download_follows_cursor_and_flags_truncation():
+    import pytest
+    from kalshi_bot.client import KalshiClient, KalshiError
+
+    class Resp:
+        status_code, content = 200, b"x"
+        def __init__(self, data):
+            self.data = data
+        def json(self):
+            return self.data
+
+    class Sess:
+        def __init__(self, pages):
+            self.pages = pages
+        def request(self, method, url, **kw):
+            return Resp(self.pages.pop(0))
+
+    pages = [{"events": [{"event_ticker": str(i)}], "cursor": f"c{i}"} for i in range(24)]
+    pages.append({"events": [{"event_ticker": "last"}], "cursor": ""})
+    assert len(KalshiClient.public(session=Sess(pages)).get_events_with_markets()) == 25
+
+    endless = [{"events": [{}], "cursor": "more"} for _ in range(3)]
+    with pytest.raises(KalshiError, match="incomplete"):
+        KalshiClient.public(session=Sess(endless)).get_events_with_markets(max_pages=3)

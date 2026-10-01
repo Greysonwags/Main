@@ -111,7 +111,7 @@ class KalshiClient:
     def get_positions(self) -> list:
         return self._request("GET", "/portfolio/positions").get("market_positions", [])
 
-    def get_events_with_markets(self, max_pages: int = 20, progress=None) -> list:
+    def get_events_with_markets(self, max_pages: int = 200, progress=None) -> list:
         """Open events, each with its list of markets nested under "markets".
         `progress(count)` is called after each page, if given."""
         events, cursor = [], None
@@ -126,6 +126,9 @@ class KalshiClient:
             cursor = data.get("cursor")
             if not cursor:
                 break
+        else:
+            raise KalshiError(f"Stopped after {len(events)} events; there are more than the "
+                              f"{max_pages}-page limit allows, so results would be incomplete.")
         return events
 
     def get_market(self, ticker: str) -> dict:
