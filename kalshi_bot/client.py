@@ -20,6 +20,12 @@ DEMO_BASE_URL = "https://demo-api.kalshi.co/trade-api/v2"
 REAL_BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 
 
+# Seconds to wait before each retry after a "too many requests" reply.
+RETRY_WAITS = (1, 2, 4, 8, 16)
+# Pause between pages of a long download, to stay under Kalshi's rate limit.
+PAGE_PAUSE = 0.5
+
+
 class KalshiError(Exception):
     pass
 
@@ -57,6 +63,7 @@ class KalshiClient:
         self.base_url = base_url.rstrip("/")
         self.base_path = urlparse(self.base_url).path
         self.session = session or requests.Session()
+        self.sleep = time.sleep
 
     @classmethod
     def public(cls, base_url: str = REAL_BASE_URL, session=None):
@@ -85,11 +92,25 @@ class KalshiClient:
         return cls(key_id, load_private_key(pem))
 
     def _request(self, method: str, path: str, params=None, json=None):
+        if self.private_key is None and method != "GET":
+            raise KalshiError("This read-only connection can't place or change orders.")
+        # Reads are retried when Kalshi says "too many requests"; orders are not,
+        # so a slow-down can never turn into a duplicate order.
+        attempts = len(RETRY_WAITS) + 1 if method == "GET" else 1
+        for attempt in range(attempts):
+            resp = self.session.request(method, self.base_url + path, params=params, json=json,
+                                        headers=self._headers(method, path), timeout=20)
+            if resp.status_code != 429 or attempt == attempts - 1:
+                break
+            self.sleep(RETRY_WAITS[attempt])
+        if resp.status_code >= 400:
+            raise KalshiError(f"{method} {path} -> {resp.status_code}: {resp.text[:500]}")
+        return resp.json() if resp.content else {}
+
+    def _headers(self, method: str, path: str) -> dict:
         headers = {"Content-Type": "application/json"}
-        if self.private_key is None:
-            if method != "GET":
-                raise KalshiError("This read-only connection can't place or change orders.")
-        else:
+        if self.private_key is not None:
+            # A fresh timestamp and signature for every attempt.
             timestamp = str(int(time.time() * 1000))
             headers.update({
                 "KALSHI-ACCESS-KEY": self.key_id,
@@ -98,12 +119,7 @@ class KalshiClient:
                     self.private_key, timestamp, method, self.base_path + path
                 ),
             })
-        resp = self.session.request(
-            method, self.base_url + path, params=params, json=json, headers=headers, timeout=20
-        )
-        if resp.status_code >= 400:
-            raise KalshiError(f"{method} {path} -> {resp.status_code}: {resp.text[:500]}")
-        return resp.json() if resp.content else {}
+        return headers
 
     def get_balance_cents(self) -> int:
         return int(self._request("GET", "/portfolio/balance")["balance"])
@@ -119,6 +135,7 @@ class KalshiClient:
             params = {"status": "open", "with_nested_markets": "true", "limit": 200}
             if cursor:
                 params["cursor"] = cursor
+                self.sleep(PAGE_PAUSE)
             data = self._request("GET", "/events", params=params)
             events.extend(data.get("events", []))
             if progress:

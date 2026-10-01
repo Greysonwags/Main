@@ -312,8 +312,54 @@ def test_event_download_follows_cursor_and_flags_truncation():
 
     pages = [{"events": [{"event_ticker": str(i)}], "cursor": f"c{i}"} for i in range(24)]
     pages.append({"events": [{"event_ticker": "last"}], "cursor": ""})
-    assert len(KalshiClient.public(session=Sess(pages)).get_events_with_markets()) == 25
+    pauses = []
+    client = KalshiClient.public(session=Sess(pages))
+    client.sleep = pauses.append
+    assert len(client.get_events_with_markets()) == 25
+    assert pauses == [0.5] * 24  # a pause before every page after the first
 
-    endless = [{"events": [{}], "cursor": "more"} for _ in range(3)]
+    client = KalshiClient.public(session=Sess([{"events": [{}], "cursor": "more"}] * 3))
+    client.sleep = lambda s: None
     with pytest.raises(KalshiError, match="incomplete"):
-        KalshiClient.public(session=Sess(endless)).get_events_with_markets(max_pages=3)
+        client.get_events_with_markets(max_pages=3)
+
+
+def test_reads_retry_on_429_but_orders_do_not():
+    import pytest
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from kalshi_bot.client import KalshiClient, KalshiError, DEMO_BASE_URL
+
+    class Resp:
+        def __init__(self, code):
+            self.status_code, self.content, self.text = code, b"{}", "too many requests"
+        def json(self):
+            return {"balance": 7}
+
+    class Sess:
+        def __init__(self, codes):
+            self.codes, self.calls = list(codes), []
+        def request(self, method, url, **kw):
+            self.calls.append(kw["headers"].get("KALSHI-ACCESS-TIMESTAMP"))
+            return Resp(self.codes.pop(0))
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    waits = []
+    sess = Sess([429, 429, 200])
+    client = KalshiClient("k", key, base_url=DEMO_BASE_URL, session=sess)
+    client.sleep = waits.append
+    assert client.get_balance_cents() == 7
+    assert waits == [1, 2] and len(sess.calls) == 3
+
+    sess = Sess([429, 200])
+    client = KalshiClient("k", key, base_url=DEMO_BASE_URL, session=sess)
+    client.sleep = waits.append
+    with pytest.raises(KalshiError, match="429"):
+        client.place_limit_order("T", "yes", 1, 50)
+    assert len(sess.calls) == 1
+
+    sess = Sess([429] * 6)
+    client = KalshiClient.public(session=sess)
+    client.sleep = lambda s: None
+    with pytest.raises(KalshiError, match="429"):
+        client.get_market("T")
+    assert len(sess.calls) == 6
