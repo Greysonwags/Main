@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import requests
 
+from . import report
 from .client import KalshiClient, KalshiError
 from .risk import RiskConfig, size_orders
 from .strategy import StrategyConfig, find_trades, skip_reasons
@@ -29,19 +30,19 @@ def position_qty(p: dict) -> float:
 
 
 def cmd_status(client, args):
-    print(f"Demo balance: {dollars(client.get_balance_cents())}")
     positions = [p for p in client.get_positions() if position_qty(p)]
-    if not positions:
-        print("No open positions.")
+    markets = {}
     for p in positions:
-        qty = position_qty(p)
-        side = "YES" if qty > 0 else "NO"
-        print(f"  {p['ticker']}: {abs(qty):g} {side}")
-    resting = client.get_resting_orders()
-    if resting:
-        print(f"{len(resting)} order(s) waiting to be filled:")
-    for o in resting:
-        print(f"  {o.get('ticker')}")
+        try:
+            markets[p["ticker"]] = client.get_market(p["ticker"])
+        except KalshiError:
+            pass  # shown as "?" rather than failing the whole screen
+    print(report.render(
+        balance=client.get_balance_cents(),
+        trades=report.active_trades(positions, markets),
+        resting=client.get_resting_orders(),
+        settled=report.settled_results(client.get_settlements()),
+    ))
 
 
 def scan(client, args):
@@ -123,7 +124,7 @@ def cmd_auto(client, args, sleep=time.sleep):
 def main():
     parser = argparse.ArgumentParser(prog="kalshi_bot", description="Kalshi demo trading bot")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("status", help="show demo balance and positions")
+    sub.add_parser("status", help="home screen: balance, active trades, profit/loss")
     d = StrategyConfig()
     for name, help_text in (("scan", "list markets the strategy likes"),
                             ("run", "size orders and (with --place) submit them"),

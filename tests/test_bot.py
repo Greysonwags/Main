@@ -172,3 +172,47 @@ def test_auto_places_each_round_and_survives_errors(capsys):
     assert placed == ["M2", "M3"]
     assert sleeps == [1800, 1800]
     assert "This round failed" in capsys.readouterr().out
+
+
+def test_status_home_screen(capsys):
+    import argparse
+    from kalshi_bot import __main__ as cli
+    from kalshi_bot.client import KalshiError
+
+    class Fake:
+        def get_balance_cents(self):
+            return 8_210
+        def get_positions(self):
+            return [
+                {"ticker": "WIN", "position": 5, "market_exposure": 440},           # YES, bought at 88c
+                {"ticker": "NOSIDE", "position_fp": "-5.00", "market_exposure_dollars": "4.5500"},
+                {"ticker": "GONE", "position": 3, "market_exposure": 270},
+                {"ticker": "OLD", "position": 0},
+            ]
+        def get_market(self, ticker):
+            if ticker == "GONE":
+                raise KalshiError("404")
+            return {"WIN": {"title": "Will it rain?", "yes_bid": 95, "yes_ask": 97},
+                    "NOSIDE": {"yes_bid_dollars": "0.1000", "yes_ask_dollars": "0.1200"}}[ticker]
+        def get_resting_orders(self):
+            return [{"ticker": "WAIT", "side": "ask", "price_dollars": "0.0900",
+                     "remaining_count_fp": "5.00"}]
+        def get_settlements(self):
+            return [
+                {"ticker": "A", "revenue": 500, "yes_total_cost": 450, "no_total_cost": 0},
+                {"ticker": "B", "revenue_dollars": "0", "no_total_cost_dollars": "4.1000"},
+            ]
+
+    cli.cmd_status(Fake(), argparse.Namespace())
+    out = capsys.readouterr().out
+    assert "KALSHI DEMO" in out
+    assert "Cash balance:   $82.10" in out
+    assert "ACTIVE TRADES (3)" in out
+    assert "5 YES  cost $4.40  worth now $4.75  (+$0.35)" in out       # 5 x 95c
+    assert "5 NO  cost $4.55  worth now $4.40  (-$0.15)" in out        # NO bid = 100 - 12
+    assert "worth now ?  (?)" in out
+    assert "WAIT: buy 5 NO @ 91c" in out
+    assert "Finished bets:  -$3.60   (1 won, 1 lost, 2 total)" in out
+    assert "Open bets:      +$0.20" in out
+    assert "Total:          -$3.40" in out
+    assert "couldn't be priced" in out

@@ -37,8 +37,9 @@ def sign_request(private_key, timestamp_ms: str, method: str, path: str) -> str:
 
 
 def price_cents(market: dict, field: str):
-    """Read a price field in cents, accepting either the legacy integer-cents
-    field (`yes_bid`) or the newer dollar-string field (`yes_bid_dollars`)."""
+    """Read a price or money field in cents, accepting either the legacy
+    integer-cents field (`yes_bid`) or the newer dollar-string field
+    (`yes_bid_dollars`)."""
     dollars = market.get(f"{field}_dollars")
     if dollars not in (None, ""):
         return round(float(dollars) * 100)
@@ -97,6 +98,23 @@ class KalshiClient:
 
     def get_positions(self) -> list:
         return self._request("GET", "/portfolio/positions").get("market_positions", [])
+
+    def get_market(self, ticker: str) -> dict:
+        return self._request("GET", f"/markets/{ticker}").get("market", {})
+
+    def get_settlements(self, max_pages: int = 10) -> list:
+        """Markets that have finished and paid out (or not) on this account."""
+        settlements, cursor = [], None
+        for _ in range(max_pages):
+            params = {"limit": 200}
+            if cursor:
+                params["cursor"] = cursor
+            data = self._request("GET", "/portfolio/settlements", params=params)
+            settlements.extend(data.get("settlements", []))
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        return settlements
 
     def get_resting_orders(self, max_pages: int = 10) -> list:
         """Orders still waiting on the book (placed but not yet filled)."""
