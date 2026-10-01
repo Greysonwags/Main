@@ -72,3 +72,78 @@ drops the balance below $10, and skips markets you already hold.
 ## Tests
 
 `python -m pytest`
+
+---
+
+# Golf outing demo (`golf_demo/`)
+
+A working sales demo for golf courses: an outing inquiry page that gives the
+golfer an instant price estimate, texts and emails them within seconds,
+alerts course staff, follows up automatically on day 2, 5 and 10, and asks
+last year's groups to rebook. The staff dashboard shows the open pipeline and
+what got booked.
+
+Nothing to install beyond Python 3.10+.
+
+```sh
+python -m golf_demo                 # then open http://localhost:8000
+python -m golf_demo --port 9000     # use another port
+python -m golf_demo followups       # send follow-ups that are due (run hourly once live)
+```
+
+- **Inquiry form** (what golfers see): http://localhost:8000/
+- **Staff dashboard** (what the course sees): http://localhost:8000/dashboard
+
+Leads are saved in `golf_demo_data/leads.json` (not committed). Delete that
+file to start a demo fresh.
+
+## Make it yours
+
+Edit `golf_demo/config.py`: your company name, the course name, prices per
+golfer, the weekday discount and the follow-up days. Message wording lives in
+`golf_demo/messages.py`.
+
+## Demo mode vs. real messages
+
+With no accounts connected, every message is shown on screen and marked
+"Demo mode (not sent)". To actually send them, set these in your terminal
+before starting (never put them in the repo):
+
+```sh
+# Email, e.g. a Gmail account with an app password (Google Account > Security > App passwords)
+export SMTP_HOST=smtp.gmail.com SMTP_PORT=587
+export SMTP_USER=you@gmail.com SMTP_PASSWORD="your-app-password"
+
+# Texts, from a Twilio account (twilio.com > Console)
+export TWILIO_ACCOUNT_SID=AC... TWILIO_AUTH_TOKEN=... TWILIO_FROM=+15551234567
+
+# Where hot-lead alerts go (use your own phone/email for demos)
+export STAFF_EMAIL=you@gmail.com STAFF_PHONE=+15557654321
+```
+
+Texting notes:
+- A Twilio **trial** account can only text numbers you have verified in the
+  Twilio console, so for live demos either verify your own phone and hand it
+  to the prospect, or upgrade the account.
+- Before texting real customers in the US, the sending number must be
+  registered for business texting (A2P 10DLC, done in the Twilio console),
+  and people must opt in. The form's consent checkbox handles opt-in; texts
+  are only sent when it's ticked, and every text says "Reply STOP to opt out".
+
+## Running the demo on a sales call (about 5 minutes)
+
+1. Share your screen on the inquiry form. "This is what a company sees when
+   they want to book an outing at your course."
+2. Ask the prospect for a realistic group: size, date, food. Type it in and
+   point out the estimate updating live.
+3. Use their email and phone (with real sending connected) and submit. Their
+   phone buzzes within seconds. Pause and let that land.
+4. Open the dashboard: "Here's what your staff gets: a hot lead, the
+   estimated value, and the follow-ups already lined up."
+5. Open the lead and click **Send next message now** to show a follow-up
+   arriving. "If they go quiet, this keeps working so your staff doesn't
+   have to remember."
+6. Mark it booked: the follow-ups stop and the booked revenue shows up. "At
+   the end of each month you'd see exactly what this brought in."
+7. Close: "One extra outing pays for a year of this. Want me to set it up
+   with your real prices?"

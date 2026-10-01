@@ -5,3 +5,4 @@ __pycache__/
 .env
 trades.jsonl
 arbs.jsonl
+golf_demo_data/
