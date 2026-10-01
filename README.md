@@ -30,6 +30,18 @@ python -m kalshi_bot scan --min-volume 10 --max-spread 10   # loosen filters (de
 
 Placed orders are logged to `trades.jsonl`.
 
+### Auto-run
+
+```sh
+python -m kalshi_bot auto --min-volume 10 --max-spread 10             # every 60 min until Ctrl+C
+python -m kalshi_bot auto --every 30 --rounds 4                       # every 30 min, 4 times
+caffeinate -i python -m kalshi_bot auto --min-volume 10 --max-spread 10  # macOS: stay awake
+```
+
+Each round is a `run --place`. A failed round is reported and retried next
+round. It only runs while the Terminal window stays open and the computer is
+awake.
+
 ## Strategy (`kalshi_bot/strategy.py`)
 
 Buys the heavy favorite (YES or NO priced 80–94¢) in markets with at least

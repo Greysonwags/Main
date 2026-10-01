@@ -140,3 +140,35 @@ def test_run_skips_markets_with_positions_or_resting_orders(capsys):
     cli.cmd_run(Fake(), args)
     assert placed == ["NEW"]
     assert "Skipping 2 market(s)" in capsys.readouterr().out
+
+
+def test_auto_places_each_round_and_survives_errors(capsys):
+    import argparse
+    from kalshi_bot import __main__ as cli
+    from kalshi_bot.client import KalshiError
+
+    calls = {"markets": 0}
+    placed, sleeps = [], []
+
+    class Fake:
+        def get_open_markets(self, max_close_ts=None):
+            calls["markets"] += 1
+            if calls["markets"] == 1:
+                raise KalshiError("GET /markets -> 503")
+            return [market(f"M{calls['markets']}")]
+        def get_balance_cents(self):
+            return 50_000
+        def get_positions(self):
+            return []
+        def get_resting_orders(self):
+            return []
+        def place_limit_order(self, ticker, side, count, price):
+            placed.append(ticker)
+            return {"order_id": "x"}
+
+    args = argparse.Namespace(hours=48, min_volume=500, max_spread=3, min_price=80,
+                              max_price=94, every=30, rounds=3)
+    cli.cmd_auto(Fake(), args, sleep=sleeps.append)
+    assert placed == ["M2", "M3"]
+    assert sleeps == [1800, 1800]
+    assert "This round failed" in capsys.readouterr().out

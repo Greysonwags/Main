@@ -1,13 +1,15 @@
-"""Command line: python -m kalshi_bot {status,scan,run} [--place]
+"""Command line: python -m kalshi_bot {status,scan,run,auto} [--place]
 
-`run` is a dry run unless --place is given. Orders only ever go to the demo
-environment, which uses fake money.
+`run` is a dry run unless --place is given; `auto` repeats `run --place` on a
+timer. Orders only ever go to the demo environment, which uses fake money.
 """
 
 import argparse
 import json
 import time
 from datetime import datetime, timezone
+
+import requests
 
 from .client import KalshiClient, KalshiError
 from .risk import RiskConfig, size_orders
@@ -96,13 +98,36 @@ def cmd_run(client, args):
         print("Dry run only. Re-run with --place to send these to the demo exchange.")
 
 
+def cmd_auto(client, args, sleep=time.sleep):
+    """Run `run --place` every args.every minutes until Ctrl+C (or args.rounds)."""
+    args.place = True
+    print(f"Auto-trading every {args.every:g} minutes on the demo exchange. Press Ctrl+C to stop.")
+    round_no = 0
+    try:
+        while True:
+            round_no += 1
+            print(f"\n--- Round {round_no} at {datetime.now().strftime('%Y-%m-%d %H:%M')} ---")
+            try:
+                cmd_run(client, args)
+            except (KalshiError, requests.RequestException) as e:
+                # One bad round (Kalshi hiccup, Wi-Fi drop) shouldn't stop the robot.
+                print(f"This round failed, will try again next time: {e}")
+            if args.rounds and round_no >= args.rounds:
+                break
+            print(f"Sleeping {args.every:g} minutes...")
+            sleep(args.every * 60)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="kalshi_bot", description="Kalshi demo trading bot")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="show demo balance and positions")
     d = StrategyConfig()
     for name, help_text in (("scan", "list markets the strategy likes"),
-                            ("run", "size orders and (with --place) submit them")):
+                            ("run", "size orders and (with --place) submit them"),
+                            ("auto", "repeat run --place on a timer until Ctrl+C")):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--hours", type=float, default=48, help="only markets closing within N hours")
         p.add_argument("--min-volume", type=int, default=d.min_volume_24h, help="min contracts traded in 24h")
@@ -111,11 +136,14 @@ def main():
         p.add_argument("--max-price", type=int, default=d.max_price, help="highest price to buy, in cents")
         if name == "run":
             p.add_argument("--place", action="store_true", help="actually submit orders to demo")
+        if name == "auto":
+            p.add_argument("--every", type=float, default=60, help="minutes between rounds")
+            p.add_argument("--rounds", type=int, default=0, help="stop after N rounds (0 = forever)")
     args = parser.parse_args()
 
     try:
         client = KalshiClient.from_env()
-        {"status": cmd_status, "scan": cmd_scan, "run": cmd_run}[args.command](client, args)
+        {"status": cmd_status, "scan": cmd_scan, "run": cmd_run, "auto": cmd_auto}[args.command](client, args)
     except KalshiError as e:
         raise SystemExit(f"Error: {e}")
 
