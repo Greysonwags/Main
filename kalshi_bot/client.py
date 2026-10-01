@@ -111,8 +111,9 @@ class KalshiClient:
     def get_positions(self) -> list:
         return self._request("GET", "/portfolio/positions").get("market_positions", [])
 
-    def get_events_with_markets(self, max_pages: int = 20) -> list:
-        """Open events, each with its list of markets nested under "markets"."""
+    def get_events_with_markets(self, max_pages: int = 20, progress=None) -> list:
+        """Open events, each with its list of markets nested under "markets".
+        `progress(count)` is called after each page, if given."""
         events, cursor = [], None
         for _ in range(max_pages):
             params = {"status": "open", "with_nested_markets": "true", "limit": 200}
@@ -120,6 +121,8 @@ class KalshiClient:
                 params["cursor"] = cursor
             data = self._request("GET", "/events", params=params)
             events.extend(data.get("events", []))
+            if progress:
+                progress(len(events))
             cursor = data.get("cursor")
             if not cursor:
                 break

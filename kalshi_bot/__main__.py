@@ -141,7 +141,10 @@ ARB_LOG = "arbs.jsonl"
 
 
 def scan_arbs(client) -> list:
-    events = client.get_events_with_markets()
+    print("Downloading open events...", end="", flush=True)
+    events = client.get_events_with_markets(
+        progress=lambda n: print(f"\rDownloading open events... {n} so far", end="", flush=True))
+    print()
     exclusive = sum(1 for e in events if e.get("mutually_exclusive"))
     found = arb.find_arbs(events)
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
