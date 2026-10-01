@@ -98,6 +98,20 @@ class KalshiClient:
     def get_positions(self) -> list:
         return self._request("GET", "/portfolio/positions").get("market_positions", [])
 
+    def get_resting_orders(self, max_pages: int = 10) -> list:
+        """Orders still waiting on the book (placed but not yet filled)."""
+        orders, cursor = [], None
+        for _ in range(max_pages):
+            params = {"status": "resting", "limit": 200}
+            if cursor:
+                params["cursor"] = cursor
+            data = self._request("GET", "/portfolio/orders", params=params)
+            orders.extend(data.get("orders", []))
+            cursor = data.get("cursor")
+            if not cursor:
+                break
+        return orders
+
     def get_open_markets(self, max_close_ts=None, max_pages: int = 5, page_size: int = 200) -> list:
         markets, cursor = [], None
         for _ in range(max_pages):

@@ -20,15 +20,26 @@ def dollars(cents: int) -> str:
     return f"${cents / 100:,.2f}"
 
 
+def position_qty(p: dict) -> float:
+    """Contracts held (+YES / -NO), accepting the fixed-point field if present."""
+    fp = p.get("position_fp")
+    return float(fp) if fp not in (None, "") else float(p.get("position") or 0)
+
+
 def cmd_status(client, args):
     print(f"Demo balance: {dollars(client.get_balance_cents())}")
-    positions = [p for p in client.get_positions() if p.get("position")]
+    positions = [p for p in client.get_positions() if position_qty(p)]
     if not positions:
         print("No open positions.")
     for p in positions:
-        qty = p["position"]
+        qty = position_qty(p)
         side = "YES" if qty > 0 else "NO"
-        print(f"  {p['ticker']}: {abs(qty)} {side}")
+        print(f"  {p['ticker']}: {abs(qty):g} {side}")
+    resting = client.get_resting_orders()
+    if resting:
+        print(f"{len(resting)} order(s) waiting to be filled:")
+    for o in resting:
+        print(f"  {o.get('ticker')}")
 
 
 def scan(client, args):
@@ -52,7 +63,13 @@ def cmd_scan(client, args):
 def cmd_run(client, args):
     ideas = scan(client, args)
     balance = client.get_balance_cents()
-    held = {p["ticker"] for p in client.get_positions() if p.get("position")}
+    held = {p["ticker"] for p in client.get_positions() if position_qty(p)}
+    # Also skip markets where an earlier order is still waiting, so re-running
+    # never doubles up. If this check fails, the error stops the run.
+    held |= {o["ticker"] for o in client.get_resting_orders() if o.get("ticker")}
+    already = sum(1 for i in ideas if i.ticker in held)
+    if already:
+        print(f"Skipping {already} market(s) you already hold or have an order waiting in.")
     orders = size_orders(ideas, balance, held, RiskConfig())
     print(f"Balance {dollars(balance)}; {len(orders)} order(s) pass risk limits.")
 

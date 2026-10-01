@@ -113,3 +113,30 @@ def test_order_body_v2_maps_yes_no_onto_single_book():
     no = order_body_v2("T", "no", 5, 91, "id")
     assert (no["side"], no["price"]) == ("ask", "0.0900")
     assert yes["self_trade_prevention_type"] == "taker_at_cross"
+
+
+def test_run_skips_markets_with_positions_or_resting_orders(capsys):
+    import argparse
+    from kalshi_bot import __main__ as cli
+
+    placed = []
+
+    class Fake:
+        def get_open_markets(self, max_close_ts=None):
+            return [market("OWNED", volume_24h=900), market("WAITING", volume_24h=800),
+                    market("NEW", volume_24h=700)]
+        def get_balance_cents(self):
+            return 50_000
+        def get_positions(self):
+            return [{"ticker": "OWNED", "position_fp": "5.00"}, {"ticker": "CLOSED", "position": 0}]
+        def get_resting_orders(self):
+            return [{"ticker": "WAITING"}]
+        def place_limit_order(self, ticker, side, count, price):
+            placed.append(ticker)
+            return {"order_id": "x", "status": "resting"}
+
+    args = argparse.Namespace(hours=48, min_volume=500, max_spread=3, min_price=80,
+                              max_price=94, place=True)
+    cli.cmd_run(Fake(), args)
+    assert placed == ["NEW"]
+    assert "Skipping 2 market(s)" in capsys.readouterr().out
