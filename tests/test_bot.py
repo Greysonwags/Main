@@ -112,3 +112,4 @@ def test_order_body_v2_maps_yes_no_onto_single_book():
     assert (yes["side"], yes["price"], yes["count"]) == ("bid", "0.8800", "5.00")
     no = order_body_v2("T", "no", 5, 91, "id")
     assert (no["side"], no["price"]) == ("ask", "0.0900")
+    assert yes["self_trade_prevention_type"] == "taker_at_cross"

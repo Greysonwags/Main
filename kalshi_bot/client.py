@@ -134,4 +134,7 @@ def order_body_v2(ticker: str, side: str, count: int, price_cents: int, client_o
         "count": f"{count}.00",
         "price": f"{yes_price / 100:.4f}",
         "time_in_force": "good_till_canceled",
+        # Required by V2: if this order would match one of our own resting
+        # orders, cancel the incoming (taker) side instead of self-trading.
+        "self_trade_prevention_type": "taker_at_cross",
     }
